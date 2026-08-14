@@ -15,11 +15,6 @@ import indicators
 import volume_tracker
 import ai_engine
 
-st_autorefresh(
-    interval=60000,
-    key="angelone_live_refresh",
-)
-
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
 st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திvவ்யாஸ்திர அனலைசர்")
 
