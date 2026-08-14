@@ -8,7 +8,6 @@ on:
 
 jobs:
   run-analysis:
-    runs-config:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Code
@@ -26,4 +25,3 @@ jobs:
     - name: Run Tracker Script
       run: |
         python -c "import analyzer; print('Hourly Tracking Completed!')"
-
