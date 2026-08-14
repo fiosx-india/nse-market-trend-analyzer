@@ -8,15 +8,20 @@ from PIL import Image
 import numpy as np
 import easyocr
 
-# மற்ற ஃபைல்களின் சக்திகளை உள்ளே இழுக்கிறோம்!
+# மற்ற அனைத்து உளவு மற்றும் இண்டிகேட்டர் ஃபைல்களை தலைமை தாங்கி உள்ளே இழுக்கிறது!
 import error_handler
 import commodity_master
+import indicators
+import volume_tracker
+import ai_engine
 
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
-st.title("🔱 ஒட்டுமொத்த மார்க்கெட் ஹைப்பர்-விஷன் தானியங்கி அனலைசர்")
+st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திவ்யாஸ்திர அனலைசர்")
 
+# இடதுபுறத்தில் பக்கங்களை மாற்றுவதற்கான செட்டிங் (Core Dashboard Selection)
 market_type = st.sidebar.selectbox("மார்க்கெட் பிரிவு", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
 
+# இமேஜ் சிப் ஸ்கேனர் (OCR பவர்)
 def extract_symbols_from_image(uploaded_image):
     try:
         reader = easyocr.Reader(['en'], gpu=False)
@@ -34,13 +39,13 @@ async def fetch_stock_async(session, ticker, original_symbol=""):
         stock = yf.Ticker(ticker)
         loop = asyncio.get_event_loop()
         
-        # 5 நொடி டைம்-அவுட் பாதுகாப்பு பூட்டு
+        # 💥 எரர் ரெஸ்க்யூ: 5 நொடி டைம்-அவுட் பூட்டு (லோடிங் ஹேங் பிரச்சனை வராது!)
         df = await error_handler.handle_with_timeout(
-            loop.run_in_executor(None, lambda: stock.history(period="3d", interval="1m")), 
+            loop.run_in_executor(None, lambda: stock.history(period="5d", interval="1m")), 
             timeout_seconds=5
         )
         
-        if df is None or df.empty or len(df) < 2:
+        if df is None or df.empty or len(df) < 15:
             return None
             
         current_price = df['Close'].iloc[-1]
@@ -50,12 +55,19 @@ async def fetch_stock_async(session, ticker, original_symbol=""):
         price_2h = df.asof(current_time - timedelta(hours=2))['Close'] if not df.empty else current_price
         price_3h = df.asof(current_time - timedelta(hours=3))['Close'] if not df.empty else current_price
         
+        # 🌟 மகா இண்டிகேட்டர் மற்றும் வால்யூம் சக்திகளை இணைக்கிறோம்!
+        df = indicators.calculate_technical_indicators(df)
+        bulk_status = volume_tracker.check_bulk_deals(df)
+        ai_prediction = ai_engine.predict_next_hours_trend(df)
+        
         return {
-            "பொருள்/கம்பெனி பெயர்": original_symbol if original_symbol else ticker.replace(".NS", ""),
+            "கம்பெனி பெயர்": original_symbol if original_symbol else ticker.replace(".NS", "").replace(".BO", ""),
             "நேரடி லைவ் விலை": round(current_price, 2),
             "1 மணிநேர மாற்றம் (%)": round(((current_price - price_1h) / price_1h) * 100, 2),
             "2 மணிநேர மாற்றம் (%)": round(((current_price - price_2h) / price_2h) * 100, 2),
-            "3 மணிநேர மாற்றம் (%)": round(((current_price - price_3h) / price_3h) * 100, 2)
+            "3 மணிநேர மாற்றம் (%)": round(((current_price - price_3h) / price_3h) * 100, 2),
+            "வால்யூம் அதிரடி (Bulk Alert)": bulk_status,
+            "AI திங்கள் கணிப்பு (AE)": ai_prediction
         }
     except:
         return None
@@ -69,7 +81,7 @@ async def main_tracker(tickers_dict):
         results = await asyncio.gather(*tasks)
         return [r for result in results if (r := result) is not None]
 
-# ----------------- 📊 பிரிவு 1: பங்குச்சந்தை இன்ஜின் -----------------
+# ----------------- 📊 பங்குச்சந்தை இன்ஜின் -----------------
 if market_type == "📊 பங்குச்சந்தை (Stocks)":
     uploaded_file = st.sidebar.file_uploader("எந்தவொரு இமேஜ் ஸ்கிரீன்ஷாட் அல்லது CSV ஃபைலையும் இங்கே பதிவேற்றவும்", type=["csv", "txt", "xlsx", "png", "jpg", "jpeg"])
     
@@ -94,8 +106,8 @@ if market_type == "📊 பங்குச்சந்தை (Stocks)":
             TICKERS_DICT = {str(sym) + ".NS": str(sym) for sym in symbols[:100]}
             total_stocks = len(TICKERS_DICT)
             
-            st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            st.info(f"⚡ மொத்தம் {total_stocks} கம்பெனிகள் அனாலிசிஸ் செய்யப்படுகின்றன...")
+            st.write(f"⏱️ கடைசி ஸக்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            st.info(f"⚡ வெற்றிகரமாக ஃபைல் இணைக்கப்பட்டது! {total_stocks} கம்பெனிகள் 'சொரட்டி அடித்து' ஸ்கேன் செய்யப்படுகின்றன...")
             
             data_list = asyncio.run(main_tracker(TICKERS_DICT))
             df_stocks = pd.DataFrame(data_list)
@@ -105,19 +117,19 @@ if market_type == "📊 பங்குச்சந்தை (Stocks)":
             if not df_stocks.empty:
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.success("🚀 முன்கூட்டியே மேலே ஏறிய டாப் 10 கம்பெனிகள் (Gainers)")
+                    st.success("🚀 AI கணிப்பு படி முன்கூட்டியே மேலே ஏறும் டாப் 10 பங்குகள்")
                     top_gainers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
                     st.dataframe(top_gainers, width="stretch")
                 with col2:
-                    st.error("📉 முன்கூட்டியே கீழே இறங்கிய டாப் 10 கம்பெனிகள் (Losers)")
+                    st.error("📉 AI கணிப்பு படி முன்கூட்டியே கீழே இறங்கும் டாப் 10 பங்குகள்")
                     top_losers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=True).head(10)
                     st.dataframe(top_losers, width="stretch")
-                st.subheader("📋 ஸ்கேன் செய்யப்பட்ட அனைத்து பங்குகளின் நேரடி விபரம்")
+                st.subheader("📋 ஒட்டுமொத்த பங்குகளின் AI & பல்க் டீல் நேரடி ரிப்போர்ட்")
                 st.dataframe(df_stocks, width="stretch")
         else:
             st.error("❌ ஃபைல் அல்லது இமேஜில் இருந்து கம்பெனி குறியீடுகளைப் பிரிக்க முடியவில்லை.")
 
-# ----------------- 🛢 பிரிவு 2: கமாடிட்டி இன்ஜின் -----------------
+# ----------------- 🛢 கமாடிட்டி இன்ஜின் -----------------
 elif market_type == "🛢 கமாடிட்டி (Commodity)":
     st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     st.info("🛢️ கமாடிட்டி மாஸ்டர் இன்ஜின் பின்னணியில் அத்தனை பங்குகளையும் ஸ்கேன் செய்கிறது...")
