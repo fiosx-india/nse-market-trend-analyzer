@@ -4,9 +4,6 @@ yfinance
 requests
 aiohttp
 asyncio
-ta
-numpy
-pandas-ta
 pillow
 easyocr
 async-timeout
