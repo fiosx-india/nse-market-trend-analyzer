@@ -20,6 +20,11 @@ st.title("🔱 ஒட்டுமொத்த மார்க்கெட் த
 
 market_type = st.sidebar.selectbox("மார்க்கெட் பிரிவு", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
 
+    st_autorefresh(
+        interval=60000,
+        key="angelone_live_refresh",
+    )
+
 def extract_symbols_from_image(uploaded_image):
     try:
         reader = easyocr.Reader(['en'], gpu=False)
