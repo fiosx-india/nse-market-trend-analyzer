@@ -7,3 +7,4 @@ asyncio
 pillow
 easyocr
 async-timeout
+streamlit-autorefresh
