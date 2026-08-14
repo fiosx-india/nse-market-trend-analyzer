@@ -2,82 +2,108 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
 import streamlit as st
+import asyncio
+import aiohttp
 
-# 1. கண்காணிக்க வேண்டிய முன்னணி NSE கம்பெனிகளின் பட்டியல் (இதை நீங்கள் மாற்றிக் கொள்ளலாம்)
-TICKERS = [
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
-    "HINDUNILVR.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS", "BAJFINANCE.NS",
-    "LT.NS", "MARUTI.NS", "HCLTECH.NS", "AXISBANK.NS", "SUNPHARMA.NS",
-    "NTPC.NS", "TATAMOTORS.NS", "TITAN.NS", "COALINDIA.NS", "JIOFIN.NS"
-]
+st.set_page_config(page_title="NSE Total Auto Analyzer", layout="wide")
+st.title("📊 ஒட்டுமொத்த மார்க்கெட் தானியங்கி பங்கு டிரெண்ட் அனலைசர்")
 
-def fetch_stock_data(tickers):
-    data_list = []
-    st.info("📊 இந்திய பங்குச்சந்தை (NSE) லைவ் தரவுகள் சேகரிக்கப்படுகின்றன, சற்று காத்திருக்கவும்...")
-    
-    for ticker in tickers:
-        try:
-            # 1 நிமிட இடைவெளியில் கடந்த 4 நாட்களின் தரவுகளை எடுத்தல்
-            stock = yf.Ticker(ticker)
-            df = stock.history(period="4d", interval="1m")
+# 1. இடதுபுறத்தில் எந்த ஒரு ஃபைலையும் அப்லோட் செய்யும் டைனமிக் செட்டிங்
+uploaded_file = st.sidebar.file_uploader(
+    "உங்களிடம் உள்ள எந்தவொரு கம்பெனி லிஸ்ட் CSV ஃபைலையும் இங்கே பதிவேற்றவும்", 
+    type=["csv"]
+)
+
+# அсин்க்ரோனஸ் முறையில் ஒரே நேரத்தில் பல பங்குகளின் லைவ் தரவை எடுக்கும் லாஜிக்
+async def fetch_stock_async(session, ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        loop = asyncio.get_event_loop()
+        # கடந்த 3 நாட்களின் நிமிடத் தரவை மட்டும் எடுத்து வேகத்தை உச்சத்திற்கு கொண்டு செல்கிறோம்
+        df = await loop.run_in_executor(None, lambda: stock.history(period="3d", interval="1m"))
+        
+        if df.empty or len(df) < 5:
+            return None
             
-            if df.empty:
-                continue
+        current_price = df['Close'].iloc[-1]
+        current_time = df.index[-1]
+        
+        time_1h = current_time - timedelta(hours=1)
+        time_2h = current_time - timedelta(hours=2)
+        time_3h = current_time - timedelta(hours=3)
+        
+        price_1h = df.asof(time_1h)['Close'] if time_1h in df.index or not df.loc[:time_1h].empty else df['Close'].iloc[-1]
+        price_2h = df.asof(time_2h)['Close'] if time_2h in df.index or not df.loc[:time_2h].empty else df['Close'].iloc[-1]
+        price_3h = df.asof(time_3h)['Close'] if time_3h in df.index or not df.loc[:time_3h].empty else df['Close'].iloc[-1]
+        
+        return {
+            "கம்பெனி பெயர்": ticker.replace(".NS", ""),
+            "라이வ் விலை (₹)": round(current_price, 2),
+            "1 மணிநேர மாற்றம் (%)": round(((current_price - price_1h) / price_1h) * 100, 2),
+            "2 மணிநேர மாற்றம் (%)": round(((current_price - price_2h) / price_2h) * 100, 2),
+            "3 மணிநேர மாற்றம் (%)": round(((current_price - price_3h) / price_3h) * 100, 2)
+        }
+    except:
+        return None
+
+async def main_tracker(tickers):
+    # மொபைல் மற்றும் BSNL நெட்வொர்க் வேகத்திற்கு ஏற்ப சர்வர் பிளாக் ஆகாமல் இருக்க 15 ஆகக் கட்டுப்படுத்துகிறோம்
+    semaphore = asyncio.Semaphore(15)
+    
+    async def sem_task(session, ticker):
+        async with semaphore:
+            return await fetch_stock_async(session, ticker)
+            
+    async with aiohttp.ClientSession() as session:
+        tasks = [sem_task(session, ticker) for ticker in tickers]
+        results = await asyncio.gather(*tasks)
+        return [r for result in results if (r := result) is not None]
+
+# அப்லோட் செய்த ஃபைலை செக் செய்தல்
+if uploaded_file is not None:
+    try:
+        # ஃபைலில் உள்ள தேவையில்லாத ஸ்பேஸ்களை நீக்கி படிக்கிறோம்
+        nse_df = pd.read_csv(uploaded_file)
+        # ஃபைலின் தலைப்பில் உள்ள ஸ்பேஸ் அல்லது குளறுபடிகளை ஆட்டோமேட்டிக்காக சரிசெய்கிறது!
+        nse_df.columns = nse_df.columns.str.strip().str.upper() 
+        
+        # ஃபைலில் SYMBOL என்று தொடங்கும் காலம் எங்குள்ளது என்று ஆட்டோமேட்டிக்காகத் தேடுகிறது
+        symbol_col = [col for col in nse_df.columns if 'SYMBOL' in col]
+        
+        if symbol_col:
+            actual_col = symbol_col[0]
+            # கோடிங்கில் கை வைக்காமல் ஃபைலில் உள்ள அத்தனை கம்பெனிகளையும் டைனமிக் ஆக எடுக்கிறது!
+            TICKERS = [str(symbol).strip() + ".NS" for symbol in nse_df[actual_col].dropna().unique() if str(symbol).strip() != ""]
+            total_stocks = len(TICKERS)
+            
+            st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            st.info(f"⚡ வெற்றிகரமாக ஃபைல் படிக்கப்பட்டது! மொத்தம் {total_stocks} கம்பெனிகள் கண்டறியப்பட்டுள்ளன. தானியங்கி அனாலிசிஸ் தொடங்குகிறது...")
+            
+            # அசிங்க் லூப்பை ரன் செய்தல்
+            data_list = asyncio.run(main_tracker(TICKERS))
+            
+            df_stocks = pd.DataFrame(data_list)
+            
+            if not df_stocks.empty:
+                col1, col2 = st.columns(2)
                 
-            current_price = df['Close'].iloc[-1]
-            current_time = df.index[-1]
-            
-            # 1, 2, 3 மணிநேரத்திற்கு முந்தைய நேரங்களைக் கணக்கிடுதல்
-            time_1h = current_time - timedelta(hours=1)
-            time_2h = current_time - timedelta(hours=2)
-            time_3h = current_time - timedelta(hours=3)
-            
-            # அந்தந்த நேரத்திற்கு மிக நெருக்கமான விலையை எடுத்தல்
-            price_1h = df.asof(time_1h)['Close'] if time_1h in df.index or not df.loc[:time_1h].empty else df['Close'].iloc[0]
-            price_2h = df.asof(time_2h)['Close'] if time_2h in df.index or not df.loc[:time_2h].empty else df['Close'].iloc[0]
-            price_3h = df.asof(time_3h)['Close'] if time_3h in df.index or not df.loc[:time_3h].empty else df['Close'].iloc[0]
-            
-            # சதவீத மாற்றங்கள் (Percentage Change Logic)
-            chg_1h = ((current_price - price_1h) / price_1h) * 100
-            chg_2h = ((current_price - price_2h) / price_2h) * 100
-            chg_3h = ((current_price - price_3h) / price_3h) * 100
-            
-            data_list.append({
-                "கம்பெனி பெயர்": ticker.replace(".NS", ""),
-                "லைவ் விலை (₹)": round(current_price, 2),
-                "1 மணிநேர மாற்றம் (%)": round(chg_1h, 2),
-                "2 மணிநேர மாற்றம் (%)": round(chg_2h, 2),
-                "3 மணிநேர மாற்றம் (%)": round(chg_3h, 2)
-            })
-        except Exception as e:
-            continue
-            
-    return pd.DataFrame(data_list)
-
-# Streamlit பக்க வடிவமைப்பு (Web App UI)
-st.set_page_config(page_title="NSE hourly Trend Tracker", layout="wide")
-st.title("📊 NSE லைவ் மணிநேர பங்கு டிரெண்ட் அனலைசர்")
-st.write(f"⏱️ கடைசியாகப் புதுப்பிக்கப்பட்ட நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-df_stocks = fetch_stock_data(TICKERS)
-
-if not df_stocks.empty:
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.success("🚀 நீங்கள் கேட்டபடி முன்கூட்டியே மேலே ஏறும் டாப் 10 கம்பெனிகள் (Gainers)")
-        # 1 மணிநேரம் மற்றும் 2 மணிநேர ஏறுமுகத்தின் அடிப்படையில் ஃபில்டர் செய்தல்
-        top_gainers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
-        st.dataframe(top_gainers, use_container_width=True)
-        
-    with col2:
-        st.error("📉 நீங்கள் கேட்டபடி முன்கூட்டியே கீழே இறங்கும் டாப் 10 கம்பெனிகள் (Losers)")
-        # சரிவின் அடிப்படையில் பில்டர் செய்தல்
-        top_losers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=True).head(10)
-        st.dataframe(top_losers, use_container_width=True)
-        
-    # அனைத்து கம்பெனிகளின் முழு பட்டியல்
-    st.subheader("📋 கண்காணிப்பில் உள்ள அனைத்து கம்பெனிகளின் பட்டியல்")
-    st.dataframe(df_stocks, use_container_width=True)
+                with col1:
+                    st.success("🚀 உங்கள் ஃபைலில் இருந்து முன்கூட்டியே மேலே ஏறும் டாப் 10 கம்பெனிகள் (Gainers)")
+                    top_gainers = df_stocks.sort_values(by=["1 Nova परिवर्तन (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
+                    st.dataframe(top_gainers, width="stretch")
+                    
+                with col2:
+                    st.error("📉 உங்கள் ஃபைலில் இருந்து முன்கூட்டியே கீழே இறங்கும் டாப் 10 கம்பெனிகள் (Losers)")
+                    top_losers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=True).head(10)
+                    st.dataframe(top_losers, width="stretch")
+                    
+                st.subheader("📋 ஸ்கேன் செய்யப்பட்ட அனைத்து பங்குகளின் முழு விபரம்")
+                st.dataframe(df_stocks, width="stretch")
+            else:
+                st.warning("⚠️ பங்குகளின் லைவ் தரவுகளைச் சேகரிக்க முடியவில்லை. சந்தை விடுமுறை நாளாக இருக்கலாம்.")
+        else:
+            st.error("❌ அப்லோட் செய்யப்பட்ட ஃபைலில் 'SYMBOL' என்ற Column பெயரைக் கண்டுபிடிக்க முடியவில்லை. சரியான ஃபைலை அப்லோட் செய்யவும்.")
+    except Exception as e:
+        st.error(f"❌ ஃபைலை படிப்பதில் தொழில்நுட்பச் சிக்கல்: {e}")
 else:
-    st.warning("⚠️ சந்தை தரவுகளை எடுக்க முடியவில்லை. பங்குச்சந்தை விடுமுறை நாளாக இருக்கலாம்.")
+    st.warning("👈 நீங்கள் டவுன்லோட் செய்த எந்த ஒரு மார்க்கெட் CSV ஃபைலையும் இடதுபுறம் அப்லோட் செய்யுங்கள்!")
