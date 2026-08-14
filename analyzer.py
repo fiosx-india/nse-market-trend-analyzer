@@ -101,7 +101,7 @@ if market_type == "📊 பங்குச்சந்தை (Stocks)":
                 pass
                 
         if symbols:
-            TICKERS_DICT = {str(sym) + ".NS": str(sym) for sym in symbols[:100]}
+            TICKERS_DICT = {str(sym) + ".NS": str(sym) for sym in symbols[:10000]}
             total_stocks = len(TICKERS_DICT)
             
             st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
