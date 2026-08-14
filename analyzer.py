@@ -5,24 +5,19 @@ import streamlit as st
 import asyncio
 import aiohttp
 
-st.set_page_config(page_title="NSE Total Auto Analyzer", layout="wide")
-st.title("📊 ஒட்டுமொத்த மார்க்கெட் தானியங்கி பங்கு டிரெண்ட் அனலைசர்")
+st.set_page_config(page_title="NSE & MCX Rupee Analyzer", layout="wide")
 
-# 1. இடதுபுறத்தில் எந்த ஒரு ஃபைலையும் அப்লোட் செய்யும் டைனமிக் செட்டிங்
-uploaded_file = st.sidebar.file_uploader(
-    "உங்களிடம் உள்ள எந்தவொரு கம்பெனி லிஸ்ட் CSV ஃபைலையும் இங்கே பதிவேற்றவும்", 
-    type=["csv", "txt", "xlsx"]
-)
+# இடதுபுறத்தில் பக்கங்களை மாற்றுவதற்கான செட்டிங் (Navigation)
+page = st.sidebar.selectbox("பக்கத்தைத் தேர்வு செய்யவும்", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
 
-# அсин்க்ரோனஸ் முறையில் ஒரே நேரத்தில் பல பங்குகளின் லைவ் தரவை எடுக்கும் லாஜிக்
-async def fetch_stock_async(session, ticker):
+# அсин்க்ரோனஸ் முறையில் ஒரே நேரத்தில் லைவ் தரவை எடுக்கும் லாஜிக்
+async def fetch_stock_async(session, ticker, is_commodity=False):
     try:
         stock = yf.Ticker(ticker)
         loop = asyncio.get_event_loop()
-        # கடந்த 3 நாட்களின் நிமிடத் தரவை மட்டும் எடுத்து வேகத்தை உச்சத்திற்கு கொண்டு செல்கிறோம்
         df = await loop.run_in_executor(None, lambda: stock.history(period="3d", interval="1m"))
         
-        if df.empty or len(df) < 5:
+        if df.empty or len(df) < 2:
             return None
             
         current_price = df['Close'].iloc[-1]
@@ -36,9 +31,21 @@ async def fetch_stock_async(session, ticker):
         price_2h = df.asof(time_2h)['Close'] if time_2h in df.index or not df.loc[:time_2h].empty else df['Close'].iloc[-1]
         price_3h = df.asof(time_3h)['Close'] if time_3h in df.index or not df.loc[:time_3h].empty else df['Close'].iloc[-1]
         
+        name = ticker
+        if is_commodity:
+            name_dict = {
+                "GC=F": "சர்வதேச தங்கம் (Gold - $)", 
+                "24KGOLDM.NS": "MCX இந்திய தங்கம் (Gold 10g - ₹)",
+                "SI=F": "சர்வதேச வெள்ளி (Silver - $)", 
+                "SILVERM.NS": "MCX இந்திய வெள்ளி (Silver 1kg - ₹)",
+                "CL=F": "சர்வதேச கச்சா எண்ணெய் (Crude - $)",
+                "CRUDEOIL.NS": "MCX இந்திய கச்சா எண்ணெய் (Crude - ₹)"
+            }
+            name = name_dict.get(ticker, ticker)
+
         return {
-            "கம்பெனி பெயர்": ticker.replace(".NS", ""),
-            "லைவ் விலை (₹)": round(current_price, 2),
+            "பொருள்/கம்பெனி பெயர்": name,
+            "லைவ் விலை மதிப்பு": round(current_price, 2),
             "1 மணிநேர மாற்றம் (%)": round(((current_price - price_1h) / price_1h) * 100, 2),
             "2 மணிநேர மாற்றம் (%)": round(((current_price - price_2h) / price_2h) * 100, 2),
             "3 மணிநேர மாற்றம் (%)": round(((current_price - price_3h) / price_3h) * 100, 2)
@@ -46,68 +53,79 @@ async def fetch_stock_async(session, ticker):
     except:
         return None
 
-async def main_tracker(tickers):
-    # மொபைல் மற்றும் BSNL நெட்வொர்க் வேகத்திற்கு ஏற்ப சர்வர் பிளாக் ஆகாமல் இருக்க 15 ஆகக் கட்டுப்படுத்துகிறோம்
+async def main_tracker(tickers, is_commodity=False):
     semaphore = asyncio.Semaphore(15)
-    
     async def sem_task(session, ticker):
         async with semaphore:
-            return await fetch_stock_async(session, ticker)
-            
+            return await fetch_stock_async(session, ticker, is_commodity)
     async with aiohttp.ClientSession() as session:
         tasks = [sem_task(session, ticker) for ticker in tickers]
         results = await asyncio.gather(*tasks)
         return [r for result in results if (r := result) is not None]
 
-# அப்லோட் செய்த ஃபைலை செக் செய்தல்
-if uploaded_file is not None:
-    try:
-        # ஃபைலில் உள்ள தேவையில்லாத ஸ்பேஸ்களை நீக்கி படிக்கிறோம்
-        nse_df = pd.read_csv(uploaded_file)
-        # ஃபைலின் தலைப்பில் உள்ள ஸ்பேஸ் அல்லது குளறுபடிகளை ஆட்டோமேட்டிக்காக சரிசெய்கிறது!
-        nse_df.columns = nse_df.columns.str.strip().str.upper() 
-        
-        # ஃபைலில் SYMBOL என்று தொடங்கும் காலம் எங்குள்ளது என்று ஆட்டோமேட்டிக்காகத் தேடுகிறது
-        symbol_col = [col for col in nse_df.columns if 'SYMBOL' in col]
-        
-        if symbol_col:
-            actual_col = symbol_col[0]
-            # கோடிங்கில் கை வைக்காமல் ஃபைலில் உள்ள அத்தனை கம்பெனிகளையும் டைனமிக் ஆக எடுக்கிறது!
-            TICKERS = [str(symbol).strip() + ".NS" for symbol in nse_df[actual_col].dropna().unique() if str(symbol).strip() != ""]
+# ----------------- பக்கம் 1: பங்குச்சந்தை அனாலிசிஸ் (பழைய வசதி அப்படியே உள்ளது!) -----------------
+if page == "📊 பங்குச்சந்தை (Stocks)":
+    st.title("📊 ஒட்டுமொத்த மார்க்கெட் தானியங்கி பங்கு டிரெண்ட் அனலைசர்")
+    uploaded_file = st.sidebar.file_uploader("உங்களிடம் உள்ள எந்தவொரு கம்பெனி லிஸ்ட் CSV ஃபைலையும் இங்கே பதிவேற்றவும்", type=["csv", "txt", "xlsx"])
+
+    if uploaded_file is not None:
+        try:
+            nse_df = pd.read_csv(uploaded_file)
+            nse_df.columns = nse_df.columns.str.strip().str.upper() 
+            symbol_col = [col for col in nse_df.columns if 'SYMBOL' in col]
             
-            # 2,000+ பங்குகள் ஸ்கேன் செய்ய அதிக நேரம் எடுக்கும் என்பதால், சோதனைக்காக முதல் 80 பங்குகளை மட்டும் எடுக்கிறோம்
-            # (முழுமையாக ஸ்கேன் செய்ய விரும்பினால் 'TICKERS[:80]' என்பதை வெறும் 'TICKERS' என்று மாற்றலாம்)
-            TICKERS_TO_SCAN = TICKERS
-            total_stocks = len(TICKERS_TO_SCAN)
-            
-            st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            st.info(f"⚡ வெற்றிகரமாக ஃபைல் படிக்கப்பட்டது! மொத்தம் {total_stocks} கம்பெனிகள் அனாலிசிஸ் செய்யப்படுகின்றன...")
-            
-            # அசிங்க் லூப்பை ரன் செய்தல்
-            data_list = asyncio.run(main_tracker(TICKERS_TO_SCAN))
-            
-            df_stocks = pd.DataFrame(data_list)
-            
-            if not df_stocks.empty:
-                col1, col2 = st.columns(2)
+            if symbol_col:
+                actual_col = symbol_col[0] # முதல் மேட்சிங் காலமை எடுக்கிறது
+                TICKERS = [str(symbol).strip() + ".NS" for symbol in nse_df[actual_col].dropna().unique() if str(symbol).strip() != ""]
                 
-                with col1:
-                    st.success("🚀 உங்கள் ஃபைலில் இருந்து முன்கூட்டியே மேலே ஏறும் டாப் 10 கம்பெனிகள் (Gainers)")
-                    top_gainers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
-                    st.dataframe(top_gainers, width="stretch")
+                TICKERS_TO_SCAN = TICKERS
+                total_stocks = len(TICKERS_TO_SCAN)
+                
+                st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                st.info(f"⚡ வெற்றிகரமாக ஃபைல் படிக்கப்பட்டது! மொத்தம் {total_stocks} கம்பெனிகள் அனாலிசிஸ் செய்யப்படுகின்றன. சற்று காத்திருக்கவும்...")
+                
+                data_list = asyncio.run(main_tracker(TICKERS_TO_SCAN, is_commodity=False))
+                df_stocks = pd.DataFrame(data_list)
+                
+                if not df_stocks.empty:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.success("🚀 முன்கூட்டியே மேலே ஏறும் டாப் 10 கம்பெனிகள் (Gainers)")
+                        top_gainers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
+                        st.dataframe(top_gainers, width="stretch")
+                    with col2:
+                        st.error("📉 முன்கூட்டியே கீழே இறங்கும் டாப் 10 கம்பெனிகள் (Losers)")
+                        top_losers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=True).head(10)
+                        st.dataframe(top_losers, width="stretch")
                     
-                with col2:
-                    st.error("📉 உங்கள் ஃபைலில் இருந்து முன்கூட்டியே கீழே இறங்கும் டாப் 10 கம்பெனிகள் (Losers)")
-                    top_losers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=True).head(10)
-                    st.dataframe(top_losers, width="stretch")
-                    
-                st.subheader("📋 ஸ்கேன் செய்யப்பட்ட அனைத்து பங்குகளின் முழு விபரம்")
-                st.dataframe(df_stocks, width="stretch")
+                    st.subheader("📋 ஸ்கேன் செய்யப்பட்ட அனைத்து பங்குகளின் முழு விபரம்")
+                    st.dataframe(df_stocks, width="stretch")
+                else:
+                    st.warning("⚠️ பங்குகளின் லைவ் தரவுகளைச் சேகரிக்க முடியவில்லை.")
             else:
-                st.warning("⚠️ பங்குகளின் லைவ் தரவுகளைச் சேகரிக்க முடியவில்லை. சந்தை விடுமுறை நாளாக இருக்கலாம்.")
+                st.error("❌ ஃபைலில் 'SYMBOL' என்ற Column பெயரைக் கண்டுபிடிக்க முடியவில்லை.")
+        except Exception as e:
+            st.error(f"❌ ஃபைலை படிப்பதில் தொழில்நுட்பச் சிக்கல்: {e}")
+    else:
+        st.warning("👈 நீங்கள் டவுன்லோட் செய்த எந்த ஒரு மார்க்கெட் CSV ஃபைலையும் இடதுபுறம் அப்லோட் செய்யுங்கள்!")
+
+# ----------------- பக்கம் 2: கமாடிட்டி அனாலிசிஸ் (ரூபாய் மற்றும் டாலர் இரண்டுமே வரும்!) -----------------
+elif page == "🛢 கமாடிட்டி (Commodity)":
+    st.title("🛢 லைவ் கமாடிட்டி (டாலர் & இந்திய ரூபாய்) டிரெண்ட் அனலைசர்")
+    st.write("தங்கம், வெள்ளி, கச்சா எண்ணெய் ஆகியவற்றின் நேரடி 1, 2, 3 மணிநேரக் கண்காணிப்பு (இரவு 11:30 மணி வரை லைவ் விலைகள் மாறும்).")
+    st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # சர்வதேச மற்றும் இந்திய MCX ரூபாய் குறியீடுகள் ஒன்றாக இணைக்கப்பட்டுள்ளது
+    COMMODITY_TICKERS = ["GC=F", "24KGOLDM.NS", "SI=F", "SILVERM.NS", "CL=F", "CRUDEOIL.NS"]
+    
+    with st.spinner("🔄 கமாடிட்டி மற்றும் இந்திய ரூபாய் (MCX) லைவ் விலைகள் சேகரிக்கப்படுகின்றன..."):
+        comm_data = asyncio.run(main_tracker(COMMODITY_TICKERS, is_commodity=True))
+        df_comm = pd.DataFrame(comm_data)
+        
+        if not df_comm.empty:
+            st.success("📈 தற்போதைய உலகளாவிய மற்றும் இந்திய கமாடிட்டி சந்தை நிலவரம்")
+            st.dataframe(df_comm, width="stretch")
+            
+            st.info("💡 குறிப்பு: டாலர் ($) குறியீடு உள்ளவை சர்வதேச சந்தை விலைகள். ரூபாய் (₹) குறியீடு உள்ளவை இந்திய MCX சந்தையின் நேரடி லைவ் விலைகள் ஆகும்.")
         else:
-            st.error("❌ அப்லோட் செய்யப்பட்ட ஃபைலில் 'SYMBOL' என்ற Column பெயரைக் கண்டுபிடிக்க முடியவில்லை. சரியான ஃபைலை அப்லோட் செய்யவும்.")
-    except Exception as e:
-        st.error(f"❌ ஃபைலை படிப்பதில் தொழில்நுட்பச் சிக்கல்: {e}")
-else:
-    st.warning("👈 நீங்கள் டவுன்லோட் செய்த எந்த ஒரு மார்க்கெட் CSV ஃபைலையும் இடதுபுறம் அப்லோட் செய்யுங்கள்!")
+            st.warning("⚠️ கماடிட்டி லைவ் தரவுகளைச் சேகரிக்க முடியவில்லை. மார்க்கெட் விடுமுறையாக இருக்கலாம் அல்லது இணையச் சிக்கல்.")
