@@ -16,6 +16,13 @@ import volume_tracker
 import ai_engine
 
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
+
+# 💥 இந்த 4 வரியை மட்டும் உங்களது analyzer.py-ல் டைட்டில் வரிக்கு மேலே மாத்தி சேமிக்கவும்
+from streamlit_autorefresh import st_autorefresh
+
+# 60 * 1000 மில்லிசெகண்ட்ஸ் = கரெக்ட்டா 60 செகண்ட்ஸ் (1 நிமிடம்) ஆட்டோ டைமர்
+st_autorefresh(interval=60 * 1000, key="market_time_counter")
+
 st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திvவ்யாஸ்திர அனலைசர்")
 
 market_type = st.sidebar.selectbox("மார்க்கெட் பிரிவு", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
