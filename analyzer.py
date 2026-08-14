@@ -14,6 +14,7 @@ import commodity_master
 import indicators
 import volume_tracker
 import ai_engine
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
 
