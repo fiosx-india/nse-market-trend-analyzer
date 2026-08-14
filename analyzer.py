@@ -77,7 +77,7 @@ if uploaded_file is not None:
             
             # 2,000+ பங்குகள் ஸ்கேன் செய்ய அதிக நேரம் எடுக்கும் என்பதால், சோதனைக்காக முதல் 80 பங்குகளை மட்டும் எடுக்கிறோம்
             # (முழுமையாக ஸ்கேன் செய்ய விரும்பினால் 'TICKERS[:80]' என்பதை வெறும் 'TICKERS' என்று மாற்றலாம்)
-            TICKERS_TO_SCAN = TICKERS[:80]
+            TICKERS_TO_SCAN = TICKERS
             total_stocks = len(TICKERS_TO_SCAN)
             
             st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
