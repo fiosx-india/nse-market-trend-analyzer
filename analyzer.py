@@ -17,6 +17,10 @@ import ai_engine
 
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
 
+# 🌟 மெகா ஆட்டோ-ரீப்ரெஷ் செட்டிங்: ஒவ்வொரு 60 நொடிகளுக்கும் (1 நிமிடம்) ஆப் தானாகவே ரீப்ரெஷ் ஆகும்!
+# key="counter" என்பது ஆப் லூப்பில் மாட்டிக்கொள்ளாமல் சீராக ஓட உதவும்.
+st_autorefresh(interval=60 * 1000, key="market_counter")
+
 st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திvவ்யாஸ்திர அனலைசர்")
 
 market_type = st.sidebar.selectbox("மார்க்கெட் பிரிவு", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
