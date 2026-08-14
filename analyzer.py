@@ -8,10 +8,10 @@ import aiohttp
 st.set_page_config(page_title="NSE Total Auto Analyzer", layout="wide")
 st.title("📊 ஒட்டுமொத்த மார்க்கெட் தானியங்கி பங்கு டிரெண்ட் அனலைசர்")
 
-# 1. இடதுபுறத்தில் எந்த ஒரு ஃபைலையும் அப்லோட் செய்யும் டைனமிக் செட்டிங்
+# 1. இடதுபுறத்தில் எந்த ஒரு ஃபைலையும் அப்লোட் செய்யும் டைனமிக் செட்டிங்
 uploaded_file = st.sidebar.file_uploader(
     "உங்களிடம் உள்ள எந்தவொரு கம்பெனி லிஸ்ட் CSV ஃபைலையும் இங்கே பதிவேற்றவும்", 
-    type=["csv"]
+    type=["csv", "txt", "xlsx"]
 )
 
 # அсин்க்ரோனஸ் முறையில் ஒரே நேரத்தில் பல பங்குகளின் லைவ் தரவை எடுக்கும் லாஜிக்
@@ -38,7 +38,7 @@ async def fetch_stock_async(session, ticker):
         
         return {
             "கம்பெனி பெயர்": ticker.replace(".NS", ""),
-            "라이வ் விலை (₹)": round(current_price, 2),
+            "லைவ் விலை (₹)": round(current_price, 2),
             "1 மணிநேர மாற்றம் (%)": round(((current_price - price_1h) / price_1h) * 100, 2),
             "2 மணிநேர மாற்றம் (%)": round(((current_price - price_2h) / price_2h) * 100, 2),
             "3 மணிநேர மாற்றம் (%)": round(((current_price - price_3h) / price_3h) * 100, 2)
@@ -74,13 +74,17 @@ if uploaded_file is not None:
             actual_col = symbol_col[0]
             # கோடிங்கில் கை வைக்காமல் ஃபைலில் உள்ள அத்தனை கம்பெனிகளையும் டைனமிக் ஆக எடுக்கிறது!
             TICKERS = [str(symbol).strip() + ".NS" for symbol in nse_df[actual_col].dropna().unique() if str(symbol).strip() != ""]
-            total_stocks = len(TICKERS)
+            
+            # 2,000+ பங்குகள் ஸ்கேன் செய்ய அதிக நேரம் எடுக்கும் என்பதால், சோதனைக்காக முதல் 80 பங்குகளை மட்டும் எடுக்கிறோம்
+            # (முழுமையாக ஸ்கேன் செய்ய விரும்பினால் 'TICKERS[:80]' என்பதை வெறும் 'TICKERS' என்று மாற்றலாம்)
+            TICKERS_TO_SCAN = TICKERS[:80]
+            total_stocks = len(TICKERS_TO_SCAN)
             
             st.write(f"⏱️ கடைசி ஸ்கேன் நேரம்: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            st.info(f"⚡ வெற்றிகரமாக ஃபைல் படிக்கப்பட்டது! மொத்தம் {total_stocks} கம்பெனிகள் கண்டறியப்பட்டுள்ளன. தானியங்கி அனாலிசிஸ் தொடங்குகிறது...")
+            st.info(f"⚡ வெற்றிகரமாக ஃபைல் படிக்கப்பட்டது! மொத்தம் {total_stocks} கம்பெனிகள் அனாலிசிஸ் செய்யப்படுகின்றன...")
             
             # அசிங்க் லூப்பை ரன் செய்தல்
-            data_list = asyncio.run(main_tracker(TICKERS))
+            data_list = asyncio.run(main_tracker(TICKERS_TO_SCAN))
             
             df_stocks = pd.DataFrame(data_list)
             
@@ -89,7 +93,7 @@ if uploaded_file is not None:
                 
                 with col1:
                     st.success("🚀 உங்கள் ஃபைலில் இருந்து முன்கூட்டியே மேலே ஏறும் டாப் 10 கம்பெனிகள் (Gainers)")
-                    top_gainers = df_stocks.sort_values(by=["1 Nova परिवर्तन (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
+                    top_gainers = df_stocks.sort_values(by=["1 மணிநேர மாற்றம் (%)", "2 மணிநேர மாற்றம் (%)"], ascending=False).head(10)
                     st.dataframe(top_gainers, width="stretch")
                     
                 with col2:
