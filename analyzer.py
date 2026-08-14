@@ -8,7 +8,7 @@ from PIL import Image
 import numpy as np
 import easyocr
 
-# 🔱 மற்ற அனைத்து புதிய உளவு மற்றும் இண்டிகேட்டர் ஃபைல்களின் சக்திகளையும் தலைமை தாங்கி உள்ளே இழுக்கிறோம்!
+# மற்ற அனைத்து உளவு மற்றும் இண்டிகேட்டர் ஃபைல்களை உள்ளே இழுக்கிறோம்!
 import error_handler
 import commodity_master
 import indicators
@@ -16,12 +16,10 @@ import volume_tracker
 import ai_engine
 
 st.set_page_config(page_title="Ultimate Multi-Market Engine", layout="wide")
-st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திவ்யாஸ்திர அனலைசர்")
+st.title("🔱 ஒட்டுமொத்த மார்க்கெட் திvவ்யாஸ்திர அனலைசர்")
 
-# இடதுபுறத்தில் பக்கங்களை மாற்றுவதற்கான செட்டிங் (Core Dashboard Control)
 market_type = st.sidebar.selectbox("மார்க்கெட் பிரிவு", ["📊 பங்குச்சந்தை (Stocks)", "🛢 கமாடிட்டி (Commodity)"])
 
-# 📷 15 MP இமேஜ் சிப் ஸ்கேனர் (OCR பவர்)
 def extract_symbols_from_image(uploaded_image):
     try:
         reader = easyocr.Reader(['en'], gpu=False)
@@ -39,7 +37,7 @@ async def fetch_stock_async(session, ticker, original_symbol=""):
         stock = yf.Ticker(ticker)
         loop = asyncio.get_event_loop()
         
-        # 💥 எரர் ரெஸ்க்யூ: 5 நொடி டைம்-அவுட் பாதுகாப்பு பூட்டு (லோடிங் ஹேங் பிரச்சனை வராது!)
+        # 5 நொடி டைம்-அவுட் பாதுகாப்பு பூட்டு
         df = await error_handler.handle_with_timeout(
             loop.run_in_executor(None, lambda: stock.history(period="5d", interval="1m")), 
             timeout_seconds=5
@@ -55,7 +53,6 @@ async def fetch_stock_async(session, ticker, original_symbol=""):
         price_2h = df.asof(current_time - timedelta(hours=2))['Close'] if not df.empty else current_price
         price_3h = df.asof(current_time - timedelta(hours=3))['Close'] if not df.empty else current_price
         
-        # 🌟 மகா இண்டிகேட்டர், பல்க் டீல் மற்றும் AI அனாலிசிஸ் சக்திகளை ஒரே புள்ளியில் இணைக்கிறோம்!
         df = indicators.calculate_technical_indicators(df)
         bulk_status = volume_tracker.check_bulk_deals(df)
         ai_prediction = ai_engine.predict_next_hours_trend(df)
@@ -73,7 +70,7 @@ async def fetch_stock_async(session, ticker, original_symbol=""):
         return None
 
 async def main_tracker(tickers_dict):
-    semaphore = asyncio.Semaphore(15) # BSNL நெட்வொர்க் பாதுகாப்பு வேகம்
+    semaphore = asyncio.Semaphore(15)
     async def sem_task(session, ticker, orig_sym):
         async with semaphore: return await fetch_stock_async(session, ticker, orig_sym)
     async with aiohttp.ClientSession() as session:
@@ -95,14 +92,15 @@ if market_type == "📊 பங்குச்சந்தை (Stocks)":
             try:
                 df = pd.read_csv(uploaded_file)
                 df.columns = df.columns.str.strip().str.upper()
+                # 💥 திருத்தப்பட்ட பகுதி: லிஸ்ட்டில் இருந்து முதல் ஸ்ட்ரிங் தலைப்பை மட்டும் துல்லியமாக எடுக்கிறது!
                 symbol_col = [col for col in df.columns if 'SYMBOL' in col or 'UNDERLYING' in col or 'CODE' in col]
                 if symbol_col:
-                    symbols = [str(sym).strip() for sym in df[symbol_col].dropna().unique() if str(sym).strip() != ""]
+                    actual_col = symbol_col[0] # முதல் மேட்சிங் காலமை மட்டும் எடுக்கிறது
+                    symbols = [str(sym).strip() for sym in df[actual_col].dropna().unique() if str(sym).strip() != ""]
             except:
                 pass
                 
         if symbols:
-            # 30,000 கம்பெனிகள் இருந்தாலும் சிந்தாமல் சிதறாமல் இருக்க முதல் 100 பங்குகளை எடுக்கிறோம்
             TICKERS_DICT = {str(sym) + ".NS": str(sym) for sym in symbols[:100]}
             total_stocks = len(TICKERS_DICT)
             
@@ -127,7 +125,7 @@ if market_type == "📊 பங்குச்சந்தை (Stocks)":
                 st.subheader("📋 ஒட்டுமொத்த பங்குகளின் AI & பல்க் டீல் நேரடி ரிப்போர்ட்")
                 st.dataframe(df_stocks, width="stretch")
         else:
-            st.error("❌ ஃபைல் அல்லது இமேஜில் இருந்து கம்பெனி குறியீடுகளைப் பிரிக்க முடியவில்லை.")
+            st.error("❌ ஃபைல் அல்லது இமேஜில் இருந்து கம்பெனி குறியீடுகளைப் பிரிக்க முடியவில்லை. தலைப்பில் 'SYMBOL' உள்ளதா என உறுதிப்படுத்தவும்.")
 
 # ----------------- 🛢 பிரிவு 2: கமாடிட்டி இன்ஜின் -----------------
 elif market_type == "🛢 கமாடிட்டி (Commodity)":
